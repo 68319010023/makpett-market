@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 
-const API_BASE = '/api/foods'
+const API_BASE = '/api/menu'
 
 const foods = ref([])
 const name = ref('')
@@ -10,7 +10,8 @@ const editingId = ref(null)
 
 async function fetchFoods() {
   const res = await fetch(API_BASE)
-  foods.value = await res.json()
+  const json = await res.json()
+  foods.value = json.data  
 }
 
 async function submitFood() {
