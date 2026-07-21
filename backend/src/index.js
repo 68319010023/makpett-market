@@ -3,6 +3,8 @@ const cors = require("cors");
 require("dotenv").config();
 
 const menuRoutes = require("./routes/Menuroutes");
+const authRoutes = require("./routes/Authroutes");      
+const profileRoutes = require("./routes/Profileroutes");
 const pool = require("./db");
 
 const app = express();
@@ -21,7 +23,8 @@ app.get("/health", async (req, res) => {
 });
 
 app.use("/api/menu", menuRoutes);
-
+app.use("/api/auth", authRoutes);     
+app.use("/api/profile", profileRoutes); 
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
