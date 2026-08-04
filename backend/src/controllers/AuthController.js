@@ -23,7 +23,7 @@ exports.register = async (req, res) => {
     const passwordHash = await bcrypt.hash(password, 10);
 
     const result = await pool.query(
-      `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email`,
+      `INSERT INTO users (email, password_hash) VALUES ($1, $2) RETURNING id, email, role`,
       [email, passwordHash]
     );
     const user = result.rows[0];
@@ -33,7 +33,7 @@ exports.register = async (req, res) => {
       [user.id, email.split("@")[0]]
     );
 
-    res.status(201).json({ id: user.id, email: user.email });
+    res.status(201).json({ id: user.id, email: user.email, role: user.role });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
@@ -59,9 +59,13 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
-    const accessToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: ACCESS_TOKEN_EXPIRES,
-    });
+    // NOTE: role now included in the access token payload so
+    // requireRole() middleware can read it without a DB lookup.
+    const accessToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: ACCESS_TOKEN_EXPIRES }
+    );
     const refreshToken = jwt.sign({ userId: user.id }, REFRESH_SECRET, {
       expiresIn: REFRESH_TOKEN_EXPIRES,
     });
@@ -99,9 +103,12 @@ exports.refresh = async (req, res) => {
       return res.status(403).json({ error: "Refresh token does not match" });
     }
 
-    const newAccessToken = jwt.sign({ userId: user.id, email: user.email }, JWT_SECRET, {
-      expiresIn: ACCESS_TOKEN_EXPIRES,
-    });
+    // Re-issue access token with role included, same as login.
+    const newAccessToken = jwt.sign(
+      { userId: user.id, email: user.email, role: user.role },
+      JWT_SECRET,
+      { expiresIn: ACCESS_TOKEN_EXPIRES }
+    );
 
     res.json({ accessToken: newAccessToken });
   } catch (err) {
