@@ -5,6 +5,7 @@ require("dotenv").config();
 const menuRoutes = require("./routes/Menuroutes");
 const authRoutes = require("./routes/Authroutes");      
 const profileRoutes = require("./routes/Profileroutes");
+const adminRoutes = require("./routes/Adminroutes");    
 const pool = require("./db");
 
 const app = express();
@@ -12,6 +13,8 @@ const PORT = process.env.PORT || 3000;
 
 app.use(cors());
 app.use(express.json());
+const path = require("path");
+app.use("/uploads", express.static(path.join(__dirname, "../uploads")));
 
 app.get("/health", async (req, res) => {
   try {
@@ -25,6 +28,7 @@ app.get("/health", async (req, res) => {
 app.use("/api/menu", menuRoutes);
 app.use("/api/auth", authRoutes);     
 app.use("/api/profile", profileRoutes); 
+app.use("/api/admin", adminRoutes);   // ← เพิ่มบรรทัดนี้
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ error: "Route not found" });
@@ -33,3 +37,5 @@ app.use((req, res) => {
 app.listen(PORT, () => {
   console.log(`Menu CRUD API is running at http://localhost:${PORT}`);
 });
+
+
