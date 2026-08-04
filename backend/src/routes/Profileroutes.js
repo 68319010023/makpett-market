@@ -6,6 +6,7 @@ const { uploadAvatar } = require("../middleware/uploadMiddleware");
 
 router.get("/", authenticateToken, profileController.getProfile);
 router.patch("/", authenticateToken, profileController.updateProfile);
+router.get("/activity", authenticateToken, profileController.getActivity);
 router.post(
   "/avatar",
   authenticateToken,
