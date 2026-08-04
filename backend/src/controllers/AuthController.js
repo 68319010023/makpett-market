@@ -40,6 +40,10 @@ exports.register = async (req, res) => {
   }
 };
 
+// Brute-force guard settings
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
+
 // POST /api/auth/login
 exports.login = async (req, res) => {
   try {
@@ -54,10 +58,41 @@ exports.login = async (req, res) => {
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
+    // Account currently locked? Reject before even checking the password.
+    if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      const unlockAt = new Date(user.locked_until);
+      return res.status(423).json({
+        error: `Account is temporarily locked due to too many failed login attempts. Try again after ${unlockAt.toISOString()}`,
+      });
+    }
+
     const match = await bcrypt.compare(password, user.password_hash);
     if (!match) {
+      const attempts = user.failed_login_attempts + 1;
+
+      if (attempts >= MAX_FAILED_ATTEMPTS) {
+        const lockUntil = new Date(Date.now() + LOCKOUT_MINUTES * 60 * 1000);
+        await pool.query(
+          "UPDATE users SET failed_login_attempts = $1, locked_until = $2, updated_at = NOW() WHERE id = $3",
+          [attempts, lockUntil, user.id]
+        );
+        return res.status(423).json({
+          error: `Too many failed login attempts. Account locked for ${LOCKOUT_MINUTES} minutes.`,
+        });
+      }
+
+      await pool.query(
+        "UPDATE users SET failed_login_attempts = $1, updated_at = NOW() WHERE id = $2",
+        [attempts, user.id]
+      );
       return res.status(401).json({ error: "Invalid email or password" });
     }
+
+    // Successful login: reset the failed-attempt counter and any lock.
+    await pool.query(
+      "UPDATE users SET failed_login_attempts = 0, locked_until = NULL WHERE id = $1",
+      [user.id]
+    );
 
     // NOTE: role now included in the access token payload so
     // requireRole() middleware can read it without a DB lookup.
