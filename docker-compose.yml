@@ -22,6 +22,8 @@ services:
 
   backend:
     build: ./backend
+    volumes:
+      - avatar-uploads:/app/uploads/avatars
     container_name: menu_backend
     restart: unless-stopped
     environment:
@@ -48,3 +50,4 @@ services:
 
 volumes:
   menu_db_data:
+  avatar-uploads:
