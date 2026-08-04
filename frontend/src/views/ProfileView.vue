@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
+import { isAdmin } from '../utils/auth'
 
 const router = useRouter()
 const API_BASE = '/api/profile'
@@ -183,6 +184,7 @@ onMounted(fetchProfile)
 
       <div class="footer-links">
         <router-link to="/menu">🍜 ไปหน้าเมนูอาหาร</router-link>
+        <router-link v-if="isAdmin()" to="/admin/users">🛡️ จัดการผู้ใช้งาน (Admin)</router-link>
         <button class="logout-btn" @click="logout">ออกจากระบบ</button>
       </div>
     </div>
