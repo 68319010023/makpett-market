@@ -14,9 +14,23 @@ function authenticateToken(req, res, next) {
     if (err) {
       return res.status(403).json({ error: "Invalid or expired token" });
     }
-    req.user = payload; // { userId, email }
+    req.user = payload; // { userId, email, role }
     next();
   });
 }
 
-module.exports = { authenticateToken, JWT_SECRET };
+// RBAC guard — use AFTER authenticateToken in the route chain.
+// Usage: router.get('/admin/users', authenticateToken, requireRole('admin'), handler)
+function requireRole(...allowedRoles) {
+  return (req, res, next) => {
+    if (!req.user || !req.user.role) {
+      return res.status(403).json({ error: "Role information missing from token" });
+    }
+    if (!allowedRoles.includes(req.user.role)) {
+      return res.status(403).json({ error: "Insufficient permissions" });
+    }
+    next();
+  };
+}
+
+module.exports = { authenticateToken, requireRole, JWT_SECRET };
