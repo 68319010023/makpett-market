@@ -5,5 +5,6 @@ const { authenticateToken } = require("../middleware/authMiddleware");
 
 router.get("/", authenticateToken, profileController.getProfile);
 router.patch("/", authenticateToken, profileController.updateProfile);
+router.get("/activity", authenticateToken, profileController.getActivity);
 
 module.exports = router;

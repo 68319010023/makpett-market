@@ -43,6 +43,23 @@ async function createAndSendResetToken(userId, email) {
   await sendResetPasswordEmail(email, token);
 }
 
+// Records one row per login attempt (success or failure) for a known user.
+// status values used: 'success', 'failed_password', 'failed_locked', 'failed_unverified'
+async function logLoginActivity(userId, req, status) {
+  try {
+    const ipAddress = req.headers["x-forwarded-for"]?.split(",")[0]?.trim() || req.ip;
+    const userAgent = req.headers["user-agent"] || null;
+
+    await pool.query(
+      `INSERT INTO login_activity_log (user_id, ip_address, user_agent, status) VALUES ($1, $2, $3, $4)`,
+      [userId, ipAddress, userAgent, status]
+    );
+  } catch (err) {
+    // Never let logging failures break the login flow itself.
+    console.error("Failed to write login_activity_log:", err);
+  }
+}
+
 // POST /api/auth/register
 exports.register = async (req, res) => {
   try {
@@ -237,11 +254,13 @@ exports.login = async (req, res) => {
     const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
     const user = result.rows[0];
     if (!user || !user.is_active) {
+      // No user_id to attribute this attempt to — nothing to log.
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
     // Account currently locked? Reject before even checking the password.
     if (user.locked_until && new Date(user.locked_until) > new Date()) {
+      await logLoginActivity(user.id, req, "failed_locked");
       const unlockAt = new Date(user.locked_until);
       return res.status(423).json({
         error: `Account is temporarily locked due to too many failed login attempts. Try again after ${unlockAt.toISOString()}`,
@@ -258,6 +277,7 @@ exports.login = async (req, res) => {
           "UPDATE users SET failed_login_attempts = $1, locked_until = $2, updated_at = NOW() WHERE id = $3",
           [attempts, lockUntil, user.id]
         );
+        await logLoginActivity(user.id, req, "failed_password");
         return res.status(423).json({
           error: `Too many failed login attempts. Account locked for ${LOCKOUT_MINUTES} minutes.`,
         });
@@ -267,11 +287,13 @@ exports.login = async (req, res) => {
         "UPDATE users SET failed_login_attempts = $1, updated_at = NOW() WHERE id = $2",
         [attempts, user.id]
       );
+      await logLoginActivity(user.id, req, "failed_password");
       return res.status(401).json({ error: "Invalid email or password" });
     }
 
     // Block login until the email has been verified.
     if (!user.is_email_verified) {
+      await logLoginActivity(user.id, req, "failed_unverified");
       return res.status(403).json({
         error: "Email not verified. Please check your inbox or request a new verification link.",
       });
@@ -298,6 +320,8 @@ exports.login = async (req, res) => {
       refreshToken,
       user.id,
     ]);
+
+    await logLoginActivity(user.id, req, "success");
 
     res.json({ accessToken, refreshToken });
   } catch (err) {

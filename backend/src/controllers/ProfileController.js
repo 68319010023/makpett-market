@@ -42,3 +42,41 @@ exports.updateProfile = async (req, res) => {
     res.status(500).json({ error: "Internal server error" });
   }
 };
+
+// GET /api/profile/activity?page=1&limit=20
+// Lets the logged-in user see their own login history (success + failed attempts).
+exports.getActivity = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = (page - 1) * limit;
+
+    const countResult = await pool.query(
+      "SELECT COUNT(*) FROM login_activity_log WHERE user_id = $1",
+      [req.user.userId]
+    );
+    const totalEntries = parseInt(countResult.rows[0].count, 10);
+
+    const result = await pool.query(
+      `SELECT id, ip_address, user_agent, status, created_at
+       FROM login_activity_log
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.user.userId, limit, offset]
+    );
+
+    res.json({
+      activity: result.rows,
+      pagination: {
+        page,
+        limit,
+        totalEntries,
+        totalPages: Math.ceil(totalEntries / limit),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
