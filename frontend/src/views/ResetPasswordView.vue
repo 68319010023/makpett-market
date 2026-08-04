@@ -1,36 +1,52 @@
 <script setup>
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { ref, onMounted } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 
+const route = useRoute()
 const router = useRouter()
-const email = ref('')
-const password = ref('')
+
+// ⚠️ ASSUMPTION: token ส่งมาทาง query string เช่น /reset-password?token=xxxxx
+const token = ref('')
+const newPassword = ref('')
+const confirmPassword = ref('')
 const errorMsg = ref('')
+const successMsg = ref('')
 const loading = ref(false)
 
 const API_BASE = '/api/auth'
 
-async function handleLogin() {
+onMounted(() => {
+  token.value = route.query.token || ''
+  if (!token.value) {
+    errorMsg.value = 'ลิงก์ไม่ถูกต้อง หรือหมดอายุแล้ว'
+  }
+})
+
+async function handleResetPassword() {
   errorMsg.value = ''
+  successMsg.value = ''
+
+  if (newPassword.value !== confirmPassword.value) {
+    errorMsg.value = 'รหัสผ่านทั้งสองช่องไม่ตรงกัน'
+    return
+  }
+
   loading.value = true
   try {
-    const res = await fetch(`${API_BASE}/login`, {
+    const res = await fetch(`${API_BASE}/reset-password`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: email.value, password: password.value }),
+      body: JSON.stringify({ token: token.value, newPassword: newPassword.value }),
     })
 
     if (!res.ok) {
       const err = await res.json()
-      errorMsg.value = err.error || 'เข้าสู่ระบบไม่สำเร็จ'
+      errorMsg.value = err.error || 'ตั้งรหัสผ่านใหม่ไม่สำเร็จ'
       return
     }
 
-    const data = await res.json()
-    sessionStorage.setItem('access_token', data.accessToken)
-    sessionStorage.setItem('refresh_token', data.refreshToken)
-
-    router.push('/profile')
+    successMsg.value = 'ตั้งรหัสผ่านใหม่สำเร็จ กำลังพาไปหน้าเข้าสู่ระบบ...'
+    setTimeout(() => router.push('/login'), 2000)
   } catch (e) {
     errorMsg.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'
   } finally {
@@ -43,36 +59,31 @@ async function handleLogin() {
   <div class="page">
     <div class="container">
       <header>
-        <div class="icon-badge">🔐</div>
-        <h2>เข้าสู่ระบบ</h2>
-        <p class="subtitle">ยินดีต้อนรับกลับมา</p>
+        <div class="icon-badge">🔒</div>
+        <h2>ตั้งรหัสผ่านใหม่</h2>
+        <p class="subtitle">กรอกรหัสผ่านใหม่ที่ต้องการใช้งาน</p>
       </header>
 
-      <form @submit.prevent="handleLogin">
-        <input v-model="email" type="email" placeholder="Email" required />
-        <input v-model="password" type="password" placeholder="รหัสผ่าน" required />
+      <form v-if="token" @submit.prevent="handleResetPassword">
+        <input v-model="newPassword" type="password" placeholder="รหัสผ่านใหม่" required />
+        <input v-model="confirmPassword" type="password" placeholder="ยืนยันรหัสผ่านใหม่" required />
         <button type="submit" :disabled="loading">
-          {{ loading ? '⏳ กำลังเข้าสู่ระบบ...' : '🔑 เข้าสู่ระบบ' }}
+          {{ loading ? '⏳ กำลังบันทึก...' : '✅ ตั้งรหัสผ่านใหม่' }}
         </button>
       </form>
 
       <p v-if="errorMsg" class="error-message">{{ errorMsg }}</p>
-
-      <p class="forgot-link">
-        <router-link to="/forgot-password">ลืมรหัสผ่าน?</router-link>
-      </p>
+      <p v-if="successMsg" class="success-message">{{ successMsg }}</p>
 
       <p class="switch-link">
-        ยังไม่มีบัญชี? <router-link to="/register">สมัครสมาชิก</router-link>
+        <router-link to="/login">กลับไปหน้าเข้าสู่ระบบ</router-link>
       </p>
     </div>
   </div>
 </template>
 
 <style scoped>
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
 .page {
   min-height: 100vh;
@@ -96,15 +107,8 @@ async function handleLogin() {
   box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
 }
 
-header {
-  text-align: center;
-  margin-bottom: 28px;
-}
-
-.icon-badge {
-  font-size: 40px;
-  margin-bottom: 8px;
-}
+header { text-align: center; margin-bottom: 28px; }
+.icon-badge { font-size: 40px; margin-bottom: 8px; }
 
 header h2 {
   margin: 0;
@@ -122,26 +126,7 @@ header h2 {
   color: rgba(255, 255, 255, 0.45);
 }
 
-form {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
-.forgot-link {
-  text-align: right;
-  margin-top: -4px;
-  font-size: 12px;
-}
-
-.forgot-link a {
-  color: rgba(255, 255, 255, 0.4);
-  text-decoration: none;
-}
-
-.forgot-link a:hover {
-  color: #ff9a56;
-}
+form { display: flex; flex-direction: column; gap: 12px; }
 
 input {
   padding: 13px 16px;
@@ -154,9 +139,7 @@ input {
   transition: border-color 0.25s ease, box-shadow 0.25s ease, transform 0.15s ease;
 }
 
-input::placeholder {
-  color: rgba(255, 255, 255, 0.35);
-}
+input::placeholder { color: rgba(255, 255, 255, 0.35); }
 
 input:focus {
   border-color: #ff8a3d;
@@ -182,14 +165,7 @@ button:hover:not(:disabled) {
   transform: translateY(-2px);
 }
 
-button:active {
-  transform: scale(0.97);
-}
-
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
-}
+button:disabled { opacity: 0.6; cursor: not-allowed; }
 
 .error-message {
   margin-top: 14px;
@@ -197,6 +173,16 @@ button:disabled {
   color: #ff8a8c;
   font-size: 13px;
   background: rgba(255, 77, 79, 0.1);
+  padding: 10px;
+  border-radius: 10px;
+}
+
+.success-message {
+  margin-top: 14px;
+  text-align: center;
+  color: #8fffc1;
+  font-size: 13px;
+  background: rgba(79, 255, 143, 0.1);
   padding: 10px;
   border-radius: 10px;
 }
@@ -214,7 +200,5 @@ button:disabled {
   font-weight: 600;
 }
 
-.switch-link a:hover {
-  text-decoration: underline;
-}
+.switch-link a:hover { text-decoration: underline; }
 </style>
