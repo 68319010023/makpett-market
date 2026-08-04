@@ -24,6 +24,8 @@ services:
     build: ./backend
     container_name: menu_backend
     restart: unless-stopped
+    env_file:
+      - ./backend/.env
     environment:
       PORT: 3000
       DB_HOST: postgres
