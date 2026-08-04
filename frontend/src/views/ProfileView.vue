@@ -5,11 +5,17 @@ import { useRouter } from 'vue-router'
 const router = useRouter()
 const API_BASE = '/api/profile'
 
+// Profile state
 const profile = ref({ display_name: '', avatar_url: '', bio: '', phone: '' })
 const loading = ref(true)
 const saving = ref(false)
 const errorMsg = ref('')
 const successMsg = ref('')
+
+// Avatar upload state
+const avatarFile = ref(null)
+const avatarUploading = ref(false)
+const avatarError = ref('')
 
 function authHeaders() {
   const token = sessionStorage.getItem('access_token')
@@ -77,6 +83,46 @@ async function saveProfile() {
   }
 }
 
+function handleFileChange(e) {
+  avatarFile.value = e.target.files[0] || null
+  avatarError.value = ''
+}
+
+async function uploadAvatar() {
+  if (!avatarFile.value) return
+
+  avatarUploading.value = true
+  avatarError.value = ''
+
+  try {
+    const token = sessionStorage.getItem('access_token')
+    const formData = new FormData()
+    formData.append('avatar', avatarFile.value)
+
+    const res = await fetch('/api/profile/avatar', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        // ⚠️ ห้ามใส่ Content-Type เอง ให้ browser จัดการ multipart boundary ให้อัตโนมัติ
+      },
+      body: formData,
+    })
+
+    if (!res.ok) {
+      const err = await res.json()
+      avatarError.value = err.error || 'อัปโหลดรูปไม่สำเร็จ'
+      return
+    }
+
+    profile.value = await res.json()
+    avatarFile.value = null
+  } catch (e) {
+    avatarError.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'
+  } finally {
+    avatarUploading.value = false
+  }
+}
+
 function logout() {
   sessionStorage.removeItem('access_token')
   sessionStorage.removeItem('refresh_token')
@@ -98,11 +144,28 @@ onMounted(fetchProfile)
       <div v-if="loading" class="state-message">กำลังโหลดข้อมูล...</div>
 
       <form v-else @submit.prevent="saveProfile">
+        <div class="avatar-section">
+          <img
+            v-if="profile.avatar_url"
+            :src="profile.avatar_url"
+            alt="avatar"
+            class="avatar-preview"
+          />
+          <div v-else class="avatar-placeholder">👤</div>
+
+          <input type="file" accept="image/jpeg,image/png,image/webp" @change="handleFileChange" />
+          <button
+            type="button"
+            class="upload-btn"
+            :disabled="!avatarFile || avatarUploading"
+            @click="uploadAvatar"
+          >
+            {{ avatarUploading ? '⏳ กำลังอัปโหลด...' : '📤 อัปโหลดรูปใหม่' }}
+          </button>
+          <p v-if="avatarError" class="error-message">{{ avatarError }}</p>
+        </div>
         <label>ชื่อที่แสดง</label>
         <input v-model="profile.display_name" type="text" placeholder="ชื่อที่แสดง" />
-
-        <label>รูปโปรไฟล์ (URL)</label>
-        <input v-model="profile.avatar_url" type="text" placeholder="https://..." />
 
         <label>คำอธิบายตัวตน</label>
         <textarea v-model="profile.bio" placeholder="เกี่ยวกับฉัน" rows="3"></textarea>
@@ -127,6 +190,57 @@ onMounted(fetchProfile)
 </template>
 
 <style scoped>
+.avatar-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+  padding-bottom: 20px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.avatar-preview {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  object-fit: cover;
+  border: 2px solid rgba(255, 138, 61, 0.4);
+}
+
+.avatar-placeholder {
+  width: 90px;
+  height: 90px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.05);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 36px;
+}
+
+.avatar-section input[type='file'] {
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.6);
+  max-width: 220px;
+}
+
+.upload-btn {
+  padding: 8px 16px;
+  font-size: 13px;
+  background: rgba(255, 138, 61, 0.15);
+  color: #ff9a56;
+}
+
+.upload-btn:hover:not(:disabled) {
+  background: rgba(255, 138, 61, 0.25);
+}
+
+.upload-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
 * {
   box-sizing: border-box;
 }
