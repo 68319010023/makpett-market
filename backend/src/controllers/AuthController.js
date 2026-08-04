@@ -1,11 +1,32 @@
 const bcrypt = require("bcrypt");
 const jwt = require("jsonwebtoken");
+const crypto = require("crypto");
 const pool = require("../db");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
+const { sendVerificationEmail } = require("../utils/mailer");
 
 const ACCESS_TOKEN_EXPIRES = "15m";
 const REFRESH_TOKEN_EXPIRES = "7d";
 const REFRESH_SECRET = process.env.JWT_REFRESH_SECRET || "dev_refresh_secret_change_me";
+
+// Brute-force guard settings
+const MAX_FAILED_ATTEMPTS = 5;
+const LOCKOUT_MINUTES = 15;
+
+// Email verification settings
+const EMAIL_VERIFICATION_HOURS = 24;
+
+async function createAndSendVerificationToken(userId, email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_HOURS * 60 * 60 * 1000);
+
+  await pool.query(
+    `INSERT INTO email_verification_tokens (user_id, token, expires_at) VALUES ($1, $2, $3)`,
+    [userId, token, expiresAt]
+  );
+
+  await sendVerificationEmail(email, token);
+}
 
 // POST /api/auth/register
 exports.register = async (req, res) => {
@@ -33,16 +54,85 @@ exports.register = async (req, res) => {
       [user.id, email.split("@")[0]]
     );
 
-    res.status(201).json({ id: user.id, email: user.email, role: user.role });
+    await createAndSendVerificationToken(user.id, user.email);
+
+    res.status(201).json({
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      message: "Registered successfully. Please check your email to verify your account.",
+    });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
   }
 };
 
-// Brute-force guard settings
-const MAX_FAILED_ATTEMPTS = 5;
-const LOCKOUT_MINUTES = 15;
+// POST /api/auth/verify-email
+exports.verifyEmail = async (req, res) => {
+  try {
+    const { token } = req.body;
+    if (!token) {
+      return res.status(400).json({ error: "token is required" });
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM email_verification_tokens WHERE token = $1`,
+      [token]
+    );
+    const record = result.rows[0];
+
+    if (!record) {
+      return res.status(400).json({ error: "Invalid verification token" });
+    }
+    if (new Date(record.expires_at) < new Date()) {
+      return res.status(400).json({ error: "Verification token has expired" });
+    }
+
+    await pool.query("UPDATE users SET is_email_verified = true WHERE id = $1", [
+      record.user_id,
+    ]);
+
+    // Token is single-use — remove it once consumed.
+    await pool.query("DELETE FROM email_verification_tokens WHERE id = $1", [record.id]);
+
+    res.json({ message: "Email verified successfully" });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// POST /api/auth/resend-verification
+exports.resendVerification = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "email is required" });
+    }
+
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+    const user = result.rows[0];
+
+    // Don't reveal whether the email exists — respond the same way either case.
+    if (!user) {
+      return res.json({ message: "If that email is registered, a verification link has been sent." });
+    }
+    if (user.is_email_verified) {
+      return res.json({ message: "This email is already verified." });
+    }
+
+    // Invalidate any previous outstanding tokens for this user first.
+    await pool.query("DELETE FROM email_verification_tokens WHERE user_id = $1", [user.id]);
+
+    await createAndSendVerificationToken(user.id, user.email);
+
+    res.json({ message: "If that email is registered, a verification link has been sent." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
 
 // POST /api/auth/login
 exports.login = async (req, res) => {
@@ -86,6 +176,13 @@ exports.login = async (req, res) => {
         [attempts, user.id]
       );
       return res.status(401).json({ error: "Invalid email or password" });
+    }
+
+    // Block login until the email has been verified.
+    if (!user.is_email_verified) {
+      return res.status(403).json({
+        error: "Email not verified. Please check your inbox or request a new verification link.",
+      });
     }
 
     // Successful login: reset the failed-attempt counter and any lock.
