@@ -23,4 +23,13 @@ async function sendVerificationEmail(email, token) {
   });
 }
 
-module.exports = { sendMail, sendVerificationEmail };
+async function sendResetPasswordEmail(email, token) {
+  const resetUrl = `http://localhost:8080/reset-password?token=${token}`;
+  return sendMail({
+    to: email,
+    subject: "Reset your password",
+    text: `Click the link to reset your password: ${resetUrl}\n(token: ${token}, expires in 1 hour)`,
+  });
+}
+
+module.exports = { sendMail, sendVerificationEmail, sendResetPasswordEmail };

@@ -3,7 +3,7 @@ const jwt = require("jsonwebtoken");
 const crypto = require("crypto");
 const pool = require("../db");
 const { JWT_SECRET } = require("../middleware/authMiddleware");
-const { sendVerificationEmail } = require("../utils/mailer");
+const { sendVerificationEmail, sendResetPasswordEmail } = require("../utils/mailer");
 
 const ACCESS_TOKEN_EXPIRES = "15m";
 const REFRESH_TOKEN_EXPIRES = "7d";
@@ -16,6 +16,9 @@ const LOCKOUT_MINUTES = 15;
 // Email verification settings
 const EMAIL_VERIFICATION_HOURS = 24;
 
+// Password reset settings
+const PASSWORD_RESET_HOURS = 1;
+
 async function createAndSendVerificationToken(userId, email) {
   const token = crypto.randomBytes(32).toString("hex");
   const expiresAt = new Date(Date.now() + EMAIL_VERIFICATION_HOURS * 60 * 60 * 1000);
@@ -26,6 +29,18 @@ async function createAndSendVerificationToken(userId, email) {
   );
 
   await sendVerificationEmail(email, token);
+}
+
+async function createAndSendResetToken(userId, email) {
+  const token = crypto.randomBytes(32).toString("hex");
+  const expiresAt = new Date(Date.now() + PASSWORD_RESET_HOURS * 60 * 60 * 1000);
+
+  await pool.query(
+    `INSERT INTO password_reset_tokens (user_id, token, expires_at, is_used) VALUES ($1, $2, $3, false)`,
+    [userId, token, expiresAt]
+  );
+
+  await sendResetPasswordEmail(email, token);
 }
 
 // POST /api/auth/register
@@ -128,6 +143,83 @@ exports.resendVerification = async (req, res) => {
     await createAndSendVerificationToken(user.id, user.email);
 
     res.json({ message: "If that email is registered, a verification link has been sent." });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// POST /api/auth/forgot-password
+exports.forgotPassword = async (req, res) => {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ error: "email is required" });
+    }
+
+    const result = await pool.query("SELECT * FROM users WHERE email = $1", [email]);
+    const user = result.rows[0];
+
+    // Don't reveal whether the email exists — respond the same way either case.
+    const genericMessage = { message: "If that email is registered, a password reset link has been sent." };
+
+    if (!user) {
+      return res.json(genericMessage);
+    }
+
+    // Clear any previous outstanding reset tokens for this user first.
+    await pool.query("DELETE FROM password_reset_tokens WHERE user_id = $1", [user.id]);
+
+    await createAndSendResetToken(user.id, user.email);
+
+    return res.json(genericMessage);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// POST /api/auth/reset-password
+exports.resetPassword = async (req, res) => {
+  try {
+    const { token, password } = req.body;
+    if (!token || !password) {
+      return res.status(400).json({ error: "token and password are required" });
+    }
+
+    const result = await pool.query(
+      `SELECT * FROM password_reset_tokens WHERE token = $1`,
+      [token]
+    );
+    const record = result.rows[0];
+
+    if (!record) {
+      return res.status(400).json({ error: "Invalid reset token" });
+    }
+    if (record.is_used) {
+      return res.status(400).json({ error: "This reset token has already been used" });
+    }
+    if (new Date(record.expires_at) < new Date()) {
+      return res.status(400).json({ error: "Reset token has expired" });
+    }
+
+    const passwordHash = await bcrypt.hash(password, 10);
+
+    await pool.query(
+      "UPDATE users SET password_hash = $1, updated_at = NOW(), failed_login_attempts = 0, locked_until = NULL WHERE id = $2",
+      [passwordHash, record.user_id]
+    );
+
+    // Mark token as used instead of deleting, so it stays available for audit purposes.
+    await pool.query(
+      "UPDATE password_reset_tokens SET is_used = true WHERE id = $1",
+      [record.id]
+    );
+
+    // Revoke the existing refresh token, forcing re-login on all devices.
+    await pool.query("UPDATE users SET refresh_token = NULL WHERE id = $1", [record.user_id]);
+
+    res.json({ message: "Password has been reset successfully" });
   } catch (err) {
     console.error(err);
     res.status(500).json({ error: "Internal server error" });
