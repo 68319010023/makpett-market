@@ -26,7 +26,8 @@ async function handleRegister() {
       return
     }
 
-    router.push('/login')
+    // เปลี่ยนจาก router.push('/login') เป็นแบบนี้
+    router.push({ name: 'verify-notice', query: { email: email.value } })
   } catch (e) {
     errorMsg.value = 'เชื่อมต่อเซิร์ฟเวอร์ไม่ได้'
   } finally {
