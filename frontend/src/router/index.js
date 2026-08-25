@@ -9,6 +9,7 @@ import VerifyNotice from '../views/VerifyNoticeView.vue'
 import VerifyEmail from '../views/VerifyEmailView.vue'
 import AdminDashboard from '../views/AdminDashboardView.vue'
 import { isAdmin } from '../utils/auth'
+import ActivityLog from '../views/ActivityLogView.vue'
 
 const routes = [
   { path: '/', redirect: '/login' },
@@ -18,6 +19,12 @@ const routes = [
   { path: '/reset-password', name: 'reset-password', component: ResetPassword },
   { path: '/verify-notice', name: 'verify-notice', component: VerifyNotice },
   { path: '/verify-email', name: 'verify-email', component: VerifyEmail },
+  {
+  path: '/profile/activity',
+  name: 'activity-log',
+  component: ActivityLog,
+  meta: { requiresAuth: true },
+  },
   {
     path: '/admin/users',
     name: 'admin-users',
