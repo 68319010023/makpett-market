@@ -37,7 +37,7 @@ jobs:
           port: ${{ secrets.SSH_PORT }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_PRIVATE_KEY }}
-          source: "docker-compose.prod.yml,backend/init.sql"
+          source: "docker-compose.yml,backend/init.sql"
           target: "~/apps/makpett-016-023/"
           strip_components: 0
 
@@ -52,6 +52,5 @@ jobs:
             cd ~/apps/makpett-016-023
             mv -f backend/init.sql ./init.sql
             rmdir backend 2>/dev/null || true
-            mv -f docker-compose.prod.yml docker-compose.yml
             docker compose pull
             docker compose up -d
