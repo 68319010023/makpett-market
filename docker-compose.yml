@@ -3,31 +3,33 @@ version: "3.8"
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: menu_db
+    container_name: makpett-016-023-postgres
     restart: unless-stopped
     environment:
       POSTGRES_USER: menu_user
       POSTGRES_PASSWORD: menu_pass
       POSTGRES_DB: menu_db
-    ports:
-      - "5433:5432"
     volumes:
-      - menu_db_data:/var/lib/postgresql/data
-      - ./backend/init.sql:/docker-entrypoint-initdb.d/init.sql
+      - makpett-016-023_db_data:/var/lib/postgresql/data
+      - ./init.sql:/docker-entrypoint-initdb.d/init.sql
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U menu_user -d menu_db"]
       interval: 5s
       timeout: 5s
       retries: 5
+    networks:
+      - makpett-016-023-net
+    # ไม่ publish port ออก internet (ต่างจาก local ที่เปิด 5433 เพื่อ debug)
+    # ถ้าต้องการต่อจากเครื่องตัวเองด้วย เพิ่มบรรทัดนี้:
+    # ports:
+    #   - "30118:5432"
 
   backend:
-    build: ./backend
-    volumes:
-      - avatar-uploads:/app/uploads/avatars
-    container_name: menu_backend
+    image: baramee023/menu-backend:latest
+    container_name: makpett-016-023-backend
     restart: unless-stopped
     env_file:
-      - ./backend/.env
+      - ./.env
     environment:
       PORT: 3000
       DB_HOST: postgres
@@ -35,21 +37,31 @@ services:
       DB_USER: menu_user
       DB_PASSWORD: menu_pass
       DB_NAME: menu_db
+    volumes:
+      - makpett-016-023_avatar_uploads:/app/uploads/avatars
     ports:
-      - "3000:3000"
+      - "30117:3000"
     depends_on:
       postgres:
         condition: service_healthy
+    networks:
+      - makpett-016-023-net
 
   frontend:
-    build: ./frontend
-    container_name: menu_frontend
+    image: baramee023/menu-frontend:latest
+    container_name: makpett-016-023-frontend
     restart: unless-stopped
     ports:
-      - "8080:80"
+      - "30116:80"
     depends_on:
       - backend
+    networks:
+      - makpett-016-023-net
+
+networks:
+  makpett-016-023-net:
+    name: makpett-016-023-net
 
 volumes:
-  menu_db_data:
-  avatar-uploads:
+  makpett-016-023_db_data:
+  makpett-016-023_avatar_uploads:
