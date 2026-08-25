@@ -184,6 +184,7 @@ onMounted(fetchProfile)
 
       <div class="footer-links">
         <router-link to="/menu">🍜 ไปหน้าเมนูอาหาร</router-link>
+        <router-link to="/profile/activity">📜 ดูประวัติการเข้าสู่ระบบ</router-link>
         <router-link v-if="isAdmin()" to="/admin/users">🛡️ จัดการผู้ใช้งาน (Admin)</router-link>
         <button class="logout-btn" @click="logout">ออกจากระบบ</button>
       </div>
