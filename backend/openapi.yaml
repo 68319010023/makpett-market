@@ -1,0 +1,600 @@
+openapi: 3.0.3
+info:
+  title: Auth & User Management API
+  description: >
+    API สำหรับระบบ Authentication, Profile และ Admin User Management
+    ครอบคลุมงานสัปดาห์ก่อนหน้า (Register/Login/JWT/Refresh/Profile พื้นฐาน)
+    และงานสัปดาห์นี้ (Email Verification, Forgot/Reset Password,
+    Brute-force Guard, RBAC, Avatar Upload, Admin Management, Activity Log)
+  version: "1.0.0"
+servers:
+  - url: /api
+    description: Base API path
+
+tags:
+  - name: Auth
+    description: Register, Login, Token, Email Verification, Password Reset
+  - name: Profile
+    description: จัดการโปรไฟล์ของผู้ใช้ที่ล็อกอินอยู่
+  - name: Admin
+    description: จัดการผู้ใช้งานทั้งหมด (เฉพาะ role admin)
+
+security:
+  - bearerAuth: []
+
+paths:
+  /auth/register:
+    post:
+      tags: [Auth]
+      summary: สมัครสมาชิกใหม่
+      description: >
+        สร้างบัญชีผู้ใช้ใหม่พร้อม profile เริ่มต้น และส่งอีเมลยืนยันตัวตนโดยอัตโนมัติ
+        (token หมดอายุใน 24 ชั่วโมง)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email:
+                  type: string
+                  format: email
+                password:
+                  type: string
+                  format: password
+            example:
+              email: user@example.com
+              password: SuperSecret123
+      responses:
+        "201":
+          description: สมัครสมาชิกสำเร็จ (ยังต้องยืนยันอีเมลก่อนจึง login ได้)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  id: { type: string }
+                  email: { type: string }
+                  role: { type: string, example: user }
+                  message: { type: string }
+        "400":
+          description: ไม่ได้ส่ง email หรือ password มา
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "409":
+          description: อีเมลนี้ถูกใช้สมัครแล้ว
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/verify-email:
+    post:
+      tags: [Auth]
+      summary: ยืนยันอีเมลด้วย token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token]
+              properties:
+                token: { type: string }
+      responses:
+        "200":
+          description: ยืนยันอีเมลสำเร็จ
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string } } }
+        "400":
+          description: token ไม่ถูกต้อง หรือหมดอายุแล้ว
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/resend-verification:
+    post:
+      tags: [Auth]
+      summary: ขอ verification link ใหม่
+      description: >
+        เพื่อความปลอดภัย (ไม่เปิดเผยว่ามีอีเมลนี้ในระบบหรือไม่) endpoint นี้จะตอบ
+        message เดียวกันไม่ว่าอีเมลจะมีอยู่จริงหรือไม่
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200":
+          description: >
+            ส่งลิงก์ยืนยันใหม่แล้ว (หรืออีเมลยืนยันไปแล้ว หรือไม่มีอีเมลนี้ในระบบ —
+            response message เหมือนกันเพื่อไม่เปิดเผยข้อมูล)
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string } } }
+        "400":
+          description: ไม่ได้ส่ง email มา
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/forgot-password:
+    post:
+      tags: [Auth]
+      summary: ขอ reset token ทางอีเมล
+      description: >
+        ตอบ message เดียวกันเสมอไม่ว่าอีเมลจะมีอยู่ในระบบหรือไม่ (ป้องกันการเดาว่าอีเมลไหนสมัครไว้)
+        token หมดอายุใน 1 ชั่วโมง
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email]
+              properties:
+                email: { type: string, format: email }
+      responses:
+        "200":
+          description: ส่ง reset link แล้ว (หรือไม่มีอีเมลนี้ในระบบ — message เหมือนกัน)
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string } } }
+        "400":
+          description: ไม่ได้ส่ง email มา
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/reset-password:
+    post:
+      tags: [Auth]
+      summary: ตั้งรหัสผ่านใหม่ด้วย reset token
+      description: >
+        token ใช้ได้ครั้งเดียว (is_used) และมีวันหมดอายุ เมื่อสำเร็จจะรีเซ็ต
+        failed_login_attempts / locked_until และเพิกถอน refresh token เดิม (บังคับ login ใหม่ทุกอุปกรณ์)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, password]
+              properties:
+                token: { type: string }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: ตั้งรหัสผ่านใหม่สำเร็จ
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string } } }
+        "400":
+          description: token ไม่ถูกต้อง / ถูกใช้ไปแล้ว / หมดอายุแล้ว / ไม่ได้ส่ง field มาครบ
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/login:
+    post:
+      tags: [Auth]
+      summary: เข้าสู่ระบบ
+      description: >
+        คืน accessToken (อายุ 15 นาที, มี role ฝังอยู่) และ refreshToken (อายุ 7 วัน)
+        ล็อกอินผิดติดต่อกันครบ 5 ครั้งจะถูกล็อกบัญชี 15 นาที (HTTP 423)
+        ถ้ายังไม่ยืนยันอีเมลจะ login ไม่ได้ (HTTP 403)
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [email, password]
+              properties:
+                email: { type: string, format: email }
+                password: { type: string, format: password }
+      responses:
+        "200":
+          description: เข้าสู่ระบบสำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+                  refreshToken: { type: string }
+        "401":
+          description: อีเมลหรือรหัสผ่านไม่ถูกต้อง (หรือไม่มีบัญชี / บัญชีถูกปิดใช้งาน)
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "403":
+          description: ยังไม่ได้ยืนยันอีเมล
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "423":
+          description: บัญชีถูกล็อกชั่วคราวจาก brute-force guard
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/refresh:
+    post:
+      tags: [Auth]
+      summary: ขอ access token ใหม่ด้วย refresh token
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "200":
+          description: ออก access token ใหม่สำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accessToken: { type: string }
+        "400":
+          description: ไม่ได้ส่ง refreshToken มา
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "403":
+          description: refresh token ไม่ถูกต้อง หมดอายุ หรือไม่ตรงกับที่เก็บไว้ในระบบ
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /auth/logout:
+    post:
+      tags: [Auth]
+      summary: ออกจากระบบ
+      description: ล้าง refresh token ที่ตรงกันออกจากฐานข้อมูล
+      security: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [refreshToken]
+              properties:
+                refreshToken: { type: string }
+      responses:
+        "200":
+          description: ออกจากระบบสำเร็จ
+          content:
+            application/json:
+              schema: { type: object, properties: { message: { type: string } } }
+        "400":
+          description: ไม่ได้ส่ง refreshToken มา
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /profile:
+    get:
+      tags: [Profile]
+      summary: ดูโปรไฟล์ของตัวเอง
+      responses:
+        "200":
+          description: ข้อมูลโปรไฟล์
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: ไม่พบโปรไฟล์
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+    patch:
+      tags: [Profile]
+      summary: แก้ไขโปรไฟล์ของตัวเอง
+      description: ส่งเฉพาะ field ที่ต้องการแก้ไขได้ (field ที่ไม่ส่งจะคงค่าเดิม)
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                display_name: { type: string }
+                avatar_url: { type: string }
+                bio: { type: string }
+                phone: { type: string }
+      responses:
+        "200":
+          description: แก้ไขสำเร็จ คืนข้อมูลโปรไฟล์ล่าสุด
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: ไม่พบโปรไฟล์
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /profile/activity:
+    get:
+      tags: [Profile]
+      summary: ดูประวัติการเข้าสู่ระบบของตัวเอง
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: รายการ login activity ของตัวเอง พร้อม pagination
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  activity:
+                    type: array
+                    items: { $ref: "#/components/schemas/LoginActivity" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /profile/avatar:
+    post:
+      tags: [Profile]
+      summary: อัปโหลด/เปลี่ยนรูปโปรไฟล์
+      description: รองรับไฟล์ jpg, png, webp เท่านั้น ขนาดไม่เกิน 2MB
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required: [avatar]
+              properties:
+                avatar:
+                  type: string
+                  format: binary
+      responses:
+        "200":
+          description: อัปโหลดสำเร็จ คืนข้อมูลโปรไฟล์ล่าสุด (มี avatar_url ใหม่)
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/Profile" }
+        "400":
+          description: ไม่ได้แนบไฟล์มา หรือไฟล์ไม่ผ่านเงื่อนไข (ชนิด/ขนาด)
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          description: ไม่พบโปรไฟล์
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /admin/users:
+    get:
+      tags: [Admin]
+      summary: ดูรายชื่อผู้ใช้ทั้งหมด (Admin เท่านั้น)
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: รายชื่อผู้ใช้ พร้อม pagination
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  users:
+                    type: array
+                    items: { $ref: "#/components/schemas/AdminUser" }
+                  pagination: { $ref: "#/components/schemas/Pagination" }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /admin/users/{id}/status:
+    patch:
+      tags: [Admin]
+      summary: ระงับ/เปิดใช้งานบัญชีผู้ใช้ (Admin เท่านั้น)
+      description: >
+        ถ้าสั่งระงับบัญชี (isActive=false) ระบบจะล้าง refresh token ของผู้ใช้นั้นทันที
+        (บังคับ logout ทุกอุปกรณ์) Admin ไม่สามารถระงับบัญชีตัวเองได้
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [isActive]
+              properties:
+                isActive: { type: boolean }
+      responses:
+        "200":
+          description: อัปเดตสถานะสำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  user: { $ref: "#/components/schemas/AdminUser" }
+        "400":
+          description: ไม่ได้ส่ง isActive (boolean) มา หรือพยายามระงับบัญชีตัวเอง
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: ไม่พบผู้ใช้
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+  /admin/users/{id}/role:
+    patch:
+      tags: [Admin]
+      summary: เปลี่ยน Role ของผู้ใช้ (Admin เท่านั้น)
+      description: Admin ไม่สามารถเปลี่ยน role ของตัวเองออกจาก admin ได้
+      parameters:
+        - $ref: "#/components/parameters/UserId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [role]
+              properties:
+                role: { type: string, enum: [user, admin] }
+      responses:
+        "200":
+          description: เปลี่ยน role สำเร็จ
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message: { type: string }
+                  user: { $ref: "#/components/schemas/AdminUser" }
+        "400":
+          description: role ไม่ถูกต้อง หรือพยายามเปลี่ยน role ตัวเองออกจาก admin
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          description: ไม่พบผู้ใช้
+          content:
+            application/json: { schema: { $ref: "#/components/schemas/Error" } }
+        "500":
+          $ref: "#/components/responses/ServerError"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: ใช้ accessToken ที่ได้จาก /auth/login หรือ /auth/refresh
+
+  parameters:
+    Page:
+      name: page
+      in: query
+      schema: { type: integer, minimum: 1, default: 1 }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    UserId:
+      name: id
+      in: path
+      required: true
+      schema: { type: string }
+
+  responses:
+    Unauthorized:
+      description: ไม่ได้แนบ token หรือ token ไม่ถูกต้อง/หมดอายุ
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/Error" } }
+    Forbidden:
+      description: token ถูกต้องแต่ role ไม่มีสิทธิ์เข้าถึง (ไม่ใช่ admin)
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/Error" } }
+    ServerError:
+      description: เกิดข้อผิดพลาดที่ฝั่งเซิร์ฟเวอร์
+      content:
+        application/json: { schema: { $ref: "#/components/schemas/Error" } }
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error: { type: string }
+
+    Profile:
+      type: object
+      properties:
+        user_id: { type: string }
+        display_name: { type: string }
+        avatar_url: { type: string, nullable: true }
+        bio: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
+        updated_at: { type: string, format: date-time }
+
+    AdminUser:
+      type: object
+      properties:
+        id: { type: string }
+        email: { type: string }
+        role: { type: string, enum: [user, admin] }
+        is_active: { type: boolean }
+        is_email_verified: { type: boolean }
+        failed_login_attempts: { type: integer }
+        locked_until: { type: string, format: date-time, nullable: true }
+        created_at: { type: string, format: date-time }
+        updated_at: { type: string, format: date-time }
+
+    LoginActivity:
+      type: object
+      properties:
+        id: { type: string }
+        ip_address: { type: string }
+        user_agent: { type: string, nullable: true }
+        status:
+          type: string
+          enum: [success, failed_password, failed_locked, failed_unverified]
+        created_at: { type: string, format: date-time }
+
+    Pagination:
+      type: object
+      properties:
+        page: { type: integer }
+        limit: { type: integer }
+        totalUsers: { type: integer, description: "ใช้ใน /admin/users เท่านั้น" }
+        totalEntries: { type: integer, description: "ใช้ใน /profile/activity เท่านั้น" }
+        totalPages: { type: integer }

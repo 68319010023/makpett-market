@@ -1,0 +1,110 @@
+const pool = require("../db");
+
+// GET /api/profile
+exports.getProfile = async (req, res) => {
+  try {
+    const result = await pool.query("SELECT * FROM profiles WHERE user_id = $1", [
+      req.user.userId,
+    ]);
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// PATCH /api/profile
+exports.updateProfile = async (req, res) => {
+  try {
+    const { display_name, avatar_url, bio, phone } = req.body;
+
+    const result = await pool.query(
+      `UPDATE profiles
+       SET display_name = COALESCE($1, display_name),
+           avatar_url = COALESCE($2, avatar_url),
+           bio = COALESCE($3, bio),
+           phone = COALESCE($4, phone),
+           updated_at = NOW()
+       WHERE user_id = $5
+       RETURNING *`,
+      [display_name, avatar_url, bio, phone, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// GET /api/profile/activity?page=1&limit=20
+// Lets the logged-in user see their own login history (success + failed attempts).
+exports.getActivity = async (req, res) => {
+  try {
+    const page = Math.max(parseInt(req.query.page, 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 100);
+    const offset = (page - 1) * limit;
+
+    const countResult = await pool.query(
+      "SELECT COUNT(*) FROM login_activity_log WHERE user_id = $1",
+      [req.user.userId]
+    );
+    const totalEntries = parseInt(countResult.rows[0].count, 10);
+
+    const result = await pool.query(
+      `SELECT id, ip_address, user_agent, status, created_at
+       FROM login_activity_log
+       WHERE user_id = $1
+       ORDER BY created_at DESC
+       LIMIT $2 OFFSET $3`,
+      [req.user.userId, limit, offset]
+    );
+
+    res.json({
+      activity: result.rows,
+      pagination: {
+        page,
+        limit,
+        totalEntries,
+        totalPages: Math.ceil(totalEntries / limit),
+      },
+    });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
+
+// POST /api/profile/avatar
+exports.uploadAvatar = async (req, res) => {
+  try {
+    if (!req.file) {
+      return res.status(400).json({ error: "กรุณาเลือกไฟล์รูปภาพ" });
+    }
+
+    const avatarUrl = `/uploads/avatars/${req.file.filename}`;
+
+    const result = await pool.query(
+      `UPDATE profiles
+       SET avatar_url = $1, updated_at = NOW()
+       WHERE user_id = $2
+       RETURNING *`,
+      [avatarUrl, req.user.userId]
+    );
+
+    if (result.rows.length === 0) {
+      return res.status(404).json({ error: "Profile not found" });
+    }
+
+    res.json(result.rows[0]);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+};
