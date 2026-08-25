@@ -22,7 +22,7 @@ services:
     # ไม่ publish port ออก internet (ต่างจาก local ที่เปิด 5433 เพื่อ debug)
     # ถ้าต้องการต่อจากเครื่องตัวเองด้วย เพิ่มบรรทัดนี้:
     # ports:
-    #   - "30102:5432"
+    #   - "30118:5432"
 
   backend:
     image: baramee023/menu-backend:latest
@@ -40,7 +40,7 @@ services:
     volumes:
       - makpett-016-023_avatar_uploads:/app/uploads/avatars
     ports:
-      - "30101:3000"
+      - "30117:3000"
     depends_on:
       postgres:
         condition: service_healthy
@@ -52,7 +52,7 @@ services:
     container_name: makpett-016-023-frontend
     restart: unless-stopped
     ports:
-      - "30100:80"
+      - "30116:80"
     depends_on:
       - backend
     networks:
